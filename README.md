@@ -53,10 +53,6 @@ If you'd rather not install it, `./build-app.sh` on its own just makes `build/No
 
 The script compiles a release build, draws the app icon from Pip's own drawing code, writes the `Info.plist` (no Dock icon, bundle ID `com.notchpal.NotchPal`) and signs the app locally.
 
-### Giving it to someone else
-
-Copy `NotchPal.app` to their Mac. Because it's signed locally rather than with a paid Apple developer account, the first launch says it's from an unidentified developer. Right-click the app, choose **Open**, then **Open** again (or go to System Settings → Privacy & Security and click **Open Anyway**). After that it opens normally.
-
 ## Quit
 
 Click the smiley icon in the menu bar and choose **Quit NotchPal** (or press ⌘Q while that menu is open).
