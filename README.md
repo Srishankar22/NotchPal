@@ -22,14 +22,30 @@ Pip, a tiny peach with a sprout, lives in your MacBook's notch. It mostly keeps 
 
 ## Reminders
 
-| You do | What happens |
-|---|---|
-| Click the bell (no reminders yet) | The editor opens: type a **Description**, pick **In** (countdown in h / m / s) or **At** (clock time with AM/PM), press **Set** |
-| Type the time into the description ("tea in 5 min", "standup tomorrow at 9am") | Pip works out the time for you |
-| Wait | The next reminder counts down on the left of the notch; when it's due, the notch pops open and Pip shows it |
-| Click the bell (with reminders) | A list of your reminders opens: trash icon deletes one, **+ New** adds another |
-| Right-click the bell | Quick menu to remove one reminder or clear them all |
-| Quit and relaunch | Reminders are still there (they're saved) |
+**Add a reminder**
+
+1. Hover the notch to open it, then click the bell (top right).
+2. Type a **Description**, for example "Stretch".
+3. Choose when:
+   - **In**: after a countdown, set in hours, minutes and seconds.
+   - **At**: at a clock time, with AM/PM.
+4. Press **Set** (or Return).
+
+Shortcut: type the time into the description, like "tea in 5 min" or "standup tomorrow at 9am", and just press **Set**.
+
+**When it's due**
+
+The next reminder counts down on the left side of the notch. When time's up, the notch pops open and Pip shows the reminder.
+
+**See or delete reminders**
+
+Once you have at least one reminder, clicking the bell shows your list instead of the editor.
+
+- Click the trash icon on a reminder to delete it.
+- Click **+ New** to add another one.
+- Or right-click the bell to remove one or clear them all.
+
+Reminders are saved, so they're still there after you quit and reopen NotchPal.
 
 On a Mac without a notch, a small black "fake notch" appears at the top center of the screen.
 
