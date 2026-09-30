@@ -40,6 +40,7 @@ struct OpenContent: View {
         // With no bubble Pip sits in the middle; when one appears Pip slides left.
         HStack(spacing: 10) {
             PipView(model: model)
+                .zIndex(1)   // fly over the bubble when thrown
             if model.isEditing {
                 ReminderEditor(model: model)
                     .transition(.scale(scale: 0.7, anchor: .leading).combined(with: .opacity))
@@ -52,6 +53,7 @@ struct OpenContent: View {
         }
         .padding(.top, model.closedSize.height + 2)   // stay below the camera
         .frame(width: model.currentOpenSize.width, height: model.currentOpenSize.height, alignment: .top)
+        .coordinateSpace(.named("notch"))
         .overlay(alignment: .top) { NotchEars(model: model) }
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: model.bubbleText)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.isEditing)

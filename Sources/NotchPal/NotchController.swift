@@ -144,6 +144,12 @@ final class NotchController {
 
         if model.isOpen {
             model.mouse = local
+            // Holding Pip: keep the notch open and keep getting the mouse, wherever it goes.
+            if model.isHeld {
+                panel.ignoresMouseEvents = false
+                cancelClose()
+                return
+            }
             let inside = topRect(model.currentOpenSize).insetBy(dx: -10, dy: -10).contains(p)
             // Only catch clicks where the notch actually is; everywhere else passes through.
             panel.ignoresMouseEvents = !inside

@@ -5,31 +5,95 @@ import SwiftUI
 struct PipView: View {
     @ObservedObject var model: PalModel
     var size: CGFloat = 62
-    @State private var pressed = false
+    @State private var motion = PipMotion()
+    @State private var dragging = false
 
     var body: some View {
         let snap = model.snapshot
         GeometryReader { geo in
-            let frame = geo.frame(in: .named("root"))
-            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let inRoot = geo.frame(in: .named("root"))
+            let inNotch = geo.frame(in: .named("notch"))
+            let rest = CGPoint(x: inNotch.midX, y: inNotch.midY)
+            // Mouse arrives in window ("root") coordinates; the physics works in notch coordinates.
+            let shift = CGSize(width: inRoot.minX - inNotch.minX, height: inRoot.minY - inNotch.minY)
             // Redraws every frame while open; fully paused when the notch is closed.
             TimelineView(.animation(minimumInterval: nil, paused: !snap.isOpen)) { timeline in
-                PipDrawing(pose: Pose.make(at: timeline.date, snap: snap, center: center), size: size)
-                    .frame(width: geo.size.width, height: geo.size.height)
+                let date = timeline.date
+                let events = motion.step(date: date, rest: rest, bounds: bounds,
+                                         mouse: CGPoint(x: snap.mouse.x - shift.width, y: snap.mouse.y - shift.height))
+                let center = CGPoint(x: motion.center.x + shift.width, y: motion.center.y + shift.height)
+                let pose = { () -> Pose in
+                    var p = Pose.make(at: date, snap: snap, center: center)
+                    motion.decorate(&p, at: date, upset: snap.upsetUntil > date)
+                    return p
+                }()
+
+                ZStack {
+                    PipDrawing(pose: pose, size: size)
+                        .offset(motion.offset)
+                    hearts(at: date)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                let _ = send(events)
             }
         }
         .frame(width: size * 1.7, height: size * 1.55)
         .contentShape(Rectangle())
-        // React on mouse-down (feels snappier than waiting for release).
+        // Click = poke. Click and drag = pick Pip up; let go while moving = throw.
         .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard !pressed else { return }
-                    pressed = true
-                    model.hit()
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("notch"))
+                .onChanged { v in
+                    if !dragging && hypot(v.translation.width, v.translation.height) > 4 {
+                        dragging = true
+                        motion.beginDrag(at: v.startLocation)
+                        model.grab()
+                    }
+                    if dragging { motion.drag(to: v.location) }
                 }
-                .onEnded { _ in pressed = false }
+                .onEnded { _ in
+                    if dragging {
+                        model.letGo(thrown: motion.endDrag())
+                    } else {
+                        model.hit()
+                    }
+                    dragging = false
+                }
         )
+    }
+
+    /// Where Pip's center may fly: inside the open notch, below the camera.
+    private var bounds: CGRect {
+        let open = model.currentOpenSize
+        let side: CGFloat = 14 + size * 0.55
+        let top = model.closedSize.height + size * 0.35
+        let bottom = open.height - size * 0.5
+        return CGRect(x: side, y: top, width: max(0, open.width - 2 * side), height: max(0, bottom - top))
+    }
+
+    /// Events come out of a frame being drawn, so pass them to the model just after.
+    private func send(_ events: [PipMotion.Event]) {
+        guard !events.isEmpty else { return }
+        DispatchQueue.main.async { for e in events { handle(e) } }
+    }
+
+    private func handle(_ e: PipMotion.Event) {
+        switch e {
+        case .bump: model.bump()
+        case .dizzy: model.flungDizzy()
+        case .petted: model.petted()
+        }
+    }
+
+    private func hearts(at date: Date) -> some View {
+        ForEach(motion.hearts) { h in
+            let age = date.timeIntervalSince(h.born)
+            Image(systemName: "heart.fill")
+                .font(.system(size: h.size, weight: .bold))
+                .foregroundStyle(Color(red: 1, green: 0.42, blue: 0.55))
+                .scaleEffect(0.5 + min(age * 4, 1) * 0.5)
+                .offset(x: h.x + CGFloat(sin(age * 5)) * 4, y: -size * 0.55 - CGFloat(age) * 38)
+                .opacity(max(0, 1 - age / 1.4))
+        }
     }
 }
 
@@ -52,6 +116,7 @@ struct Pose {
     var cheekGlow: Double = 0.35
     var spin: Double = 0
     var starsPhase: Double? = nil
+    var flatMouth = false                 // unimpressed "—"
 }
 
 /// A spring that starts at 1 and wobbles back to 0.
@@ -243,6 +308,16 @@ struct PipDrawing: View {
 
     @ViewBuilder
     private var mouth: some View {
+        if pose.flatMouth {
+            Capsule().fill(ink)
+                .frame(width: size * 0.13, height: size * 0.035)
+        } else {
+            expressionMouth
+        }
+    }
+
+    @ViewBuilder
+    private var expressionMouth: some View {
         switch pose.eyeStyle {
         case .squint:
             Ellipse().fill(ink)

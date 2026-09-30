@@ -11,6 +11,7 @@ struct PalSnapshot {
     var waveStart: Date
     var hitStart: Date
     var dizzyStart: Date
+    var upsetUntil: Date
 }
 
 @MainActor
@@ -30,6 +31,8 @@ final class PalModel: ObservableObject {
 
     @Published private(set) var isOpen = false
     @Published private(set) var mood: Mood = .calm
+    /// True while you're holding Pip with the mouse.
+    @Published private(set) var isHeld = false
     /// What Pip is saying right now. nil = no bubble, Pip sits centered.
     @Published private(set) var line: String?
 
@@ -37,6 +40,8 @@ final class PalModel: ObservableObject {
     @Published private(set) var openedAt = Date.distantPast
     @Published private(set) var waveStart = Date.distantPast
     @Published private(set) var hitStart = Date.distantPast
+    /// Pip holds a grudge for a while after being poked, until petted better.
+    @Published private(set) var upsetUntil = Date.distantPast
     @Published private(set) var dizzyStart = Date.distantPast
 
     private var recentHits: [Date] = []
@@ -68,7 +73,7 @@ final class PalModel: ObservableObject {
     var snapshot: PalSnapshot {
         PalSnapshot(isOpen: isOpen, mouse: mouse, mood: mood,
                     openedAt: openedAt, waveStart: waveStart,
-                    hitStart: hitStart, dizzyStart: dizzyStart)
+                    hitStart: hitStart, dizzyStart: dizzyStart, upsetUntil: upsetUntil)
     }
 
     // MARK: - Open / close
@@ -93,6 +98,7 @@ final class PalModel: ObservableObject {
         line = nil
         alert = nil
         recentHits.removeAll()
+        isHeld = false
         isListing = false
         cancelEditing()
     }
@@ -213,6 +219,7 @@ final class PalModel: ObservableObject {
     func hit() {
         let now = Date()
         hitStart = now
+        upsetUntil = now.addingTimeInterval(8)
 
         // Already seeing stars: just wobble again.
         if mood == .dizzy {
@@ -222,16 +229,7 @@ final class PalModel: ObservableObject {
         recentHits = recentHits.filter { now.timeIntervalSince($0) < 1.2 } + [now]
 
         if recentHits.count >= 3 {
-            recentHits.removeAll()
-            mood = .dizzy
-            dizzyStart = now
-            say("Whoa… stars…", for: nil)
-            after(3.2) { [weak self] in
-                guard let self else { return }
-                self.mood = .calm
-                self.say("Okay. I'm fine.", for: 1.8)
-                self.waveStart = Date()
-            }
+            becomeDizzy("Whoa… stars…")
         } else {
             mood = .hit
             say(["Ow!", "Hey!", "Rude.", "Oof!", "Why?!"].randomElement()!, for: 1.4)
@@ -239,6 +237,59 @@ final class PalModel: ObservableObject {
                 if self?.mood == .hit { self?.mood = .calm }
             }
         }
+    }
+
+    private func becomeDizzy(_ text: String) {
+        recentHits.removeAll()
+        mood = .dizzy
+        dizzyStart = Date()
+        say(text, for: nil)
+        after(3.2) { [weak self] in
+            guard let self else { return }
+            self.mood = .calm
+            self.say("Okay. I'm fine.", for: 1.8)
+            self.waveStart = Date()
+        }
+    }
+
+    // MARK: - Being picked up and thrown
+
+    func grab() {
+        isHeld = true
+        say(["Hey! Put me down!", "Whoa, heights!", "Where are we going?"].randomElement()!, for: nil)
+    }
+
+    func letGo(thrown: Bool) {
+        isHeld = false
+        if mood == .dizzy { return }
+        say(thrown ? ["Wheee!", "Aaaah!", "Yeet!"].randomElement()! : "Phew.", for: 1.2)
+    }
+
+    /// Hit a wall mid-flight: squash, but no complaining.
+    func bump() {
+        hitStart = Date()
+    }
+
+    /// Bounced around too much.
+    func flungDizzy() {
+        guard mood != .dizzy else { return }
+        upsetUntil = Date().addingTimeInterval(8)
+        becomeDizzy("Whoa… too fast…")
+    }
+
+    // MARK: - Being petted
+
+    /// Slow strokes over Pip. Forgives recent pokes and snaps out of dizziness.
+    func petted() {
+        let upset = mood != .calm || upsetUntil > Date()
+        upsetUntil = .distantPast   // forgiven
+        moodTask?.cancel()
+        recentHits.removeAll()
+        mood = .calm
+        let lines = upset
+            ? ["Okay… you're forgiven.", "Apology accepted \u{2665}", "Fine. I forgive you."]
+            : ["Hehe \u{2665}", "Mmm, that's nice.", "Purr…"]
+        say(lines.randomElement()!, for: 2)
     }
 
     /// Shows a bubble, then clears it after `seconds` (nil = keep until replaced).

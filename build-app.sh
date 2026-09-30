@@ -22,7 +22,8 @@ if [ ! -f "$WORK/AppIcon.icns" ] || [ scripts/make-icon.swift -nt "$WORK/AppIcon
    || [ Sources/NotchPal/PipView.swift -nt "$WORK/AppIcon.icns" ]; then
     swiftc -O -parse-as-library -o "$WORK/make-icon" \
         scripts/make-icon.swift \
-        Sources/NotchPal/PipView.swift Sources/NotchPal/PalModel.swift Sources/NotchPal/Reminders.swift
+        Sources/NotchPal/PipView.swift Sources/NotchPal/PipMotion.swift \
+        Sources/NotchPal/PalModel.swift Sources/NotchPal/Reminders.swift
     "$WORK/make-icon" "$WORK/icon-1024.png"
 
     ICONSET="$WORK/AppIcon.iconset"
