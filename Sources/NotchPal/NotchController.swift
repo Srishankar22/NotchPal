@@ -50,7 +50,7 @@ struct NotchGeometry {
 final class NotchController {
     /// The window is a little bigger than the open notch so the springy
     /// overshoot and the shadow never get cut off.
-    private static let windowSize = CGSize(width: 440, height: 200)
+    private static let windowSize = CGSize(width: 440, height: 230)
 
     let model = PalModel()
     private var panel: NotchPanel?
@@ -144,7 +144,7 @@ final class NotchController {
 
         if model.isOpen {
             model.mouse = local
-            let inside = topRect(PalModel.openSize).insetBy(dx: -10, dy: -10).contains(p)
+            let inside = topRect(model.currentOpenSize).insetBy(dx: -10, dy: -10).contains(p)
             // Only catch clicks where the notch actually is; everywhere else passes through.
             panel.ignoresMouseEvents = !inside
             if inside { waitingForHover = false }

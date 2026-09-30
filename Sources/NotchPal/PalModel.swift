@@ -17,6 +17,10 @@ struct PalSnapshot {
 final class PalModel: ObservableObject {
     /// Size of the notch when it's open.
     static let openSize = CGSize(width: 360, height: 150)
+    /// Bigger while you're setting a reminder or looking through them.
+    static let editSize = CGSize(width: 410, height: 196)
+
+    var currentOpenSize: CGSize { isEditing || isListing ? Self.editSize : Self.openSize }
 
     /// Size of the real notch (measured at launch). Set by NotchController.
     @Published var closedSize = CGSize(width: 190, height: 32)
@@ -47,6 +51,8 @@ final class PalModel: ObservableObject {
     @Published private(set) var alert: String?
     /// True while you're typing a reminder into the bubble.
     @Published private(set) var isEditing = false
+    /// True while the list of pending reminders is showing.
+    @Published private(set) var isListing = false
     /// Shown under the text field when Pip couldn't find a time.
     @Published private(set) var editHint: String?
 
@@ -87,6 +93,7 @@ final class PalModel: ObservableObject {
         line = nil
         alert = nil
         recentHits.removeAll()
+        isListing = false
         cancelEditing()
     }
 
@@ -98,6 +105,7 @@ final class PalModel: ObservableObject {
         line = nil
         alert = nil
         editHint = nil
+        isListing = false
         isEditing = true
         onEditingChanged?(true)
     }
@@ -109,24 +117,42 @@ final class PalModel: ObservableObject {
         onEditingChanged?(false)
     }
 
-    /// Returns false if the text should stay in the field (Pip couldn't find a time).
-    func submit(_ input: String) -> Bool {
-        guard !input.trimmingCharacters(in: .whitespaces).isEmpty else {
-            cancelEditing()
-            return true
+    /// Saves a reminder from the editor. Returns false (and shows a hint) if the time is no good.
+    /// If you never touched the time picker, a time typed into the description ("tea in 5 min") wins.
+    func submit(description: String, due picked: Date, pickerTouched: Bool) -> Bool {
+        var text = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        var due = picked
+        if !pickerTouched, let parsed = ReminderParser.parse(text) {
+            text = parsed.text
+            due = parsed.due
         }
-        guard let reminder = ReminderParser.parse(input) else {
-            editHint = "When? Try \u{201C}in 10 min\u{201D} or \u{201C}at 3pm\u{201D}"
+        guard due > Date() else {
+            editHint = "Pick a time first"
             return false
         }
-        add(reminder)
-        say("Got it! " + ReminderParser.describe(reminder.due), for: 2.2)
+        if let first = text.first { text = first.uppercased() + text.dropFirst() } else { text = "Time's up!" }
+
+        add(Reminder(text: text, due: due))
+        say("Got it! " + ReminderParser.describe(due), for: 2.2)
         waveStart = Date()
         cancelEditing()
         return true
     }
 
     // MARK: - Reminder list
+
+    func showList() {
+        guard isOpen, !reminders.isEmpty else { return }
+        lineTask?.cancel()
+        line = nil
+        alert = nil
+        cancelEditing()
+        isListing = true
+    }
+
+    func hideList() {
+        isListing = false
+    }
 
     /// Loads saved reminders and starts the clock. Call after the callbacks are set.
     func startReminders() {
@@ -151,6 +177,7 @@ final class PalModel: ObservableObject {
     }
 
     private func remindersChanged() {
+        if reminders.isEmpty { isListing = false }
         ReminderStore.save(reminders)
         scheduleNextReminder()
     }

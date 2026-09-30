@@ -108,9 +108,24 @@ enum ReminderParser {
     /// "in 10 min", "at 3:40 PM", "Fri 9:00 AM"
     static func describe(_ due: Date, now: Date = Date()) -> String {
         let s = due.timeIntervalSince(now)
-        if s < 60 { return "in \(max(1, Int(s.rounded()))) sec" }
-        if s < 3600 { return "in \(Int((s / 60).rounded())) min" }
+        if s < 3600 { return "in " + duration(Int(s.rounded())) }
         return Calendar.current.isDate(due, inSameDayAs: now) ? "at " + shortTime(due) : dayAndTime(due)
+    }
+
+    /// "10 sec", "5 min", "2m 30s", "1h 15m"
+    static func duration(_ total: Int) -> String {
+        let t = max(1, total), h = t / 3600, m = t % 3600 / 60, s = t % 60
+        if h > 0 { return m > 0 ? "\(h)h \(m)m" : "\(h)h" }
+        if m > 0 { return s > 0 ? "\(m)m \(s)s" : "\(m) min" }
+        return "\(s) sec"
+    }
+
+    /// "0:07" / "12:30" when under an hour away, otherwise "3:40 PM".
+    static func countdown(to due: Date, now: Date = Date()) -> String {
+        let left = Int(due.timeIntervalSince(now).rounded(.up))
+        guard left < 3600 else { return shortTime(due) }
+        let s = max(0, left)
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     static func shortTime(_ date: Date) -> String {
