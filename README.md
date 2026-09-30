@@ -2,7 +2,7 @@
 
 Pip, a tiny peach with a sprout, lives in your MacBook's notch. It mostly keeps you company, and it can hold on to a few reminders for you.
 
-<p align="center"><img src="docs/screenshot.png" alt="Pip in the open notch, next to the reminder editor" width="480"></p>
+<p align="center"><img src="docs/screenshot.png" alt="Pip waving hello from the open notch" width="480"></p>
 
 - Hover the notch: it grows, Pip pops up and waves hello.
 - Move your mouse: Pip's eyes follow you.
