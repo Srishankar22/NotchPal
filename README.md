@@ -21,18 +21,27 @@ Pip, a tiny peach with a sprout, lives in your MacBook's notch. It mostly keeps 
 
 On a Mac without a notch, a small black "fake notch" appears at the top center of the screen.
 
-## Run it
+## Build the app
 
 Needs macOS 14 or later and either Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```bash
 cd NotchPal
+./build-app.sh            # makes build/NotchPal.app — double-click it to start
+./build-app.sh --install  # also copies it to /Applications and opens it
+```
+
+The script compiles a release build, draws the app icon from Pip's own drawing code, writes the `Info.plist` (no Dock icon, bundle ID `com.notchpal.NotchPal`) and signs the app locally. Run it again after changing the code.
+
+The app lives in the menu bar (smiley icon). From there you can turn on **Open at Login** or quit.
+
+### Quick run while developing
+
+```bash
 swift run
 ```
 
-Or open `Package.swift` in Xcode and press ⌘R.
-
-Quit from the smiley icon in the menu bar.
+Or open `Package.swift` in Xcode and press ⌘R. This runs a bare program rather than the `.app`, so **Open at Login** is hidden, and reminders are saved separately from the app's.
 
 ## Where to tweak
 
@@ -41,11 +50,11 @@ Quit from the smiley icon in the menu bar.
 | Open notch size | `PalModel.openSize` / `editSize` in `PalModel.swift` |
 | Reminder editor and list | `ReminderEditor` and `ReminderList` in `NotchView.swift` |
 | Typed-time parsing ("in 10 min", "at 3pm") | `ReminderParser` in `Reminders.swift` |
-| What Pip says, sounds | `open()` and `hit()` in `PalModel.swift` |
+| What Pip says | `open()` and `hit()` in `PalModel.swift` |
 | How many clicks make Pip dizzy, and how fast | `hit()` in `PalModel.swift` |
 | Colors, face, arms, sprout | `PipDrawing` in `PipView.swift` |
 | Wave, hit, dizzy motion | `Pose.make` in `PipView.swift` |
 | Grow/shrink spring, notch corner shape | `NotchRootView` and `NotchShape` in `NotchView.swift` |
 | How close you need to be to open it, close delay | `mouseMoved()` and `scheduleClose()` in `NotchController.swift` |
-
-Sounds are built-in macOS sounds (Tink, Pop, Frog), so there are no asset files.
+| App icon | `scripts/make-icon.swift` |
+| App name, bundle ID, version | top of `build-app.sh` |
