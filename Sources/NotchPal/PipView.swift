@@ -6,6 +6,7 @@ struct PipView: View {
     @ObservedObject var model: PalModel
     var size: CGFloat = 62
     @State private var motion = PipMotion()
+    @AppStorage("skin") private var skin: Skin = .pip
     @State private var dragging = false
 
     var body: some View {
@@ -29,7 +30,7 @@ struct PipView: View {
                 }()
 
                 ZStack {
-                    PipDrawing(pose: pose, size: size)
+                    PipDrawing(pose: pose, size: size, skin: skin)
                         .offset(motion.offset)
                     hearts(at: date)
                 }
@@ -39,6 +40,7 @@ struct PipView: View {
         }
         .frame(width: size * 1.7, height: size * 1.55)
         .contentShape(Rectangle())
+        .contextMenu { CharacterPicker() }
         // Click = poke. Click and drag = pick Pip up; let go while moving = throw.
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named("notch"))
@@ -204,6 +206,7 @@ extension Pose {
 struct PipDrawing: View {
     let pose: Pose
     let size: CGFloat
+    var skin: Skin = .pip
 
     private let peachTop = Color(red: 1.00, green: 0.80, blue: 0.58)
     private let peachBottom = Color(red: 0.98, green: 0.56, blue: 0.43)
@@ -219,9 +222,11 @@ struct PipDrawing: View {
             arm(pose.leftArm, side: -1, bodyW: bodyW, bodyH: bodyH)
             arm(pose.rightArm, side: 1, bodyW: bodyW, bodyH: bodyH)
 
-            Sprout(color: leafGreen, size: size)
-                .rotationEffect(pose.sprout, anchor: .bottom)
-                .offset(y: -bodyH / 2 - size * 0.12 + 2)
+            if skin.showsSprout {
+                Sprout(color: leafGreen, size: size)
+                    .rotationEffect(pose.sprout, anchor: .bottom)
+                    .offset(y: -bodyH / 2 - size * 0.12 + 2)
+            }
 
             RoundedRectangle(cornerRadius: size * 0.4, style: .continuous)
                 .fill(LinearGradient(colors: [peachTop, peachBottom], startPoint: .top, endPoint: .bottom))
@@ -234,7 +239,11 @@ struct PipDrawing: View {
                         .offset(x: size * 0.13, y: size * 0.09)
                 }
 
+            SkinBodyMarks(skin: skin, size: size)
             face
+            SkinHeadwear(skin: skin, size: size)
+            heldItem(pose.leftArm, rest: Pose().leftArm, side: -1, bodyW: bodyW, bodyH: bodyH)
+            heldItem(pose.rightArm, rest: Pose().rightArm, side: 1, bodyW: bodyW, bodyH: bodyH)
             stars
         }
         .scaleEffect(x: pose.squashX, y: pose.squashY, anchor: .bottom)
@@ -252,6 +261,30 @@ struct PipDrawing: View {
             .offset(x: side * bodyW * 0.42, y: bodyH * 0.06 + length / 2)
     }
 
+    /// A prop in Pip's hand, in front of the body. It moves with the hand but stays mostly
+    /// upright, tilting only a little with the arm (so waving raises it rather than swinging it
+    /// across Pip's face).
+    @ViewBuilder
+    private func heldItem(_ angle: Angle, rest: Angle, side: CGFloat, bodyW: CGFloat, bodyH: CGFloat) -> some View {
+        if skin.holdsSomething(right: side > 0) {
+            let length = size * 0.3
+            let hand = CGPoint(x: size * 0.08, y: length - size * 0.06)
+            Color.clear
+                .frame(width: size * 0.16, height: length)
+                .overlay {
+                    ZStack {
+                        skin.heldItem(right: side > 0, size: size)
+                            .rotationEffect(-rest - (angle - rest) * 0.8)
+                        Circle().fill(armColor)          // the little fist
+                            .frame(width: size * 0.15, height: size * 0.15)
+                    }
+                    .position(hand)
+                }
+                .rotationEffect(angle, anchor: .top)
+                .offset(x: side * bodyW * 0.42, y: bodyH * 0.06 + length / 2)
+        }
+    }
+
     private var face: some View {
         ZStack {
             HStack(spacing: size * 0.44) { cheek; cheek }
@@ -263,6 +296,7 @@ struct PipDrawing: View {
                 eye(left: false)
             }
             .offset(x: pose.eyeOffset.width, y: -size * 0.04 + pose.eyeOffset.height)
+            SkinFaceWear(skin: skin, size: size)
         }
         // The whole face shifts a little too, so Pip seems to turn toward you.
         .offset(x: pose.eyeOffset.width * 0.4, y: pose.eyeOffset.height * 0.4)

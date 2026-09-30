@@ -9,6 +9,8 @@ struct NotchPalApp: App {
     var body: some Scene {
         // A tiny menu bar icon, mostly so you have a way to quit.
         MenuBarExtra("NotchPal", systemImage: "face.smiling") {
+            CharacterPicker()
+            Divider()
             // Only works when running as NotchPal.app (see build-app.sh).
             if Bundle.main.bundleIdentifier != nil {
                 LoginItemToggle()

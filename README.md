@@ -20,6 +20,23 @@ Pip, a tiny peach with a sprout, lives in your MacBook's notch. It mostly keeps 
 | Stroke Pip right after poking | Puts up with it: half-closed eyes, flat "—" mouth. When you stop: "Okay… you're forgiven." and no longer dizzy |
 | Move away | The notch shrinks back and Pip stops animating (no CPU used) |
 
+## Characters
+
+Pip can dress up as a few characters.
+
+**To change character:** right-click Pip, or click the smiley icon in the menu bar, then choose **Character** and pick one. Your choice is remembered.
+
+<p align="center"><img src="docs/characters.png" alt="Pip, Peaky Blinders, Tanjiro Kamado and Harry Potter versions" width="640"></p>
+
+| Character | Outfit | Says hello with |
+|---|---|---|
+| Pip | The classic peach with a sprout | "Hi there!", "Psst… hi!" |
+| Peaky Blinders | Tweed flat cap with a razor blade in the peak, revolver | "Alright?", "Evening." |
+| Tanjiro Kamado | Flame scar on the forehead, black katana | "I'll do my best!" |
+| Harry Potter | Round glasses, lightning scar, wand | "Lumos! …oh, hi." |
+
+Outfits are drawn in code on top of Pip, so they squash, tilt, get thrown and go dizzy along with Pip. Held items move with Pip's hand: waving raises the sword or wand.
+
 ## Reminders
 
 Click the bell in the open notch, type a description, pick a time and press **Set**. You can also type the time in, like "tea in 5 min".
@@ -102,6 +119,7 @@ Or open `Package.swift` in Xcode and press ⌘R. This runs a bare program rather
 | How long Pip holds a grudge after a poke | `upsetUntil` in `hit()` in `PalModel.swift` |
 | How many clicks make Pip dizzy, and how fast | `hit()` in `PalModel.swift` |
 | Colors, face, arms, sprout | `PipDrawing` in `PipView.swift` |
+| Characters: outfits, names, greetings, adding a new one | `Skin` and the outfit views in `PipSkins.swift` |
 | Wave, hit, dizzy motion | `Pose.make` in `PipView.swift` |
 | Throw physics (bounciness, spring home, bounces to dizzy), petting speed | constants at the top of `PipMotion` in `PipMotion.swift` |
 | Grow/shrink spring, notch corner shape | `NotchRootView` and `NotchShape` in `NotchView.swift` |

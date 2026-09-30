@@ -86,7 +86,7 @@ final class PalModel: ObservableObject {
         openedAt = now
         waveStart = now.addingTimeInterval(0.3)   // wave once the notch has grown
         guard greet else { return }
-        say(["Hi there!", "Oh, hello!", "Hey you!", "Psst… hi!"].randomElement()!, for: 1.8)
+        say(Skin.current.greetings.randomElement()!, for: 1.8)
     }
 
     func close() {
