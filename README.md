@@ -28,15 +28,6 @@ Pip can dress up as a few characters.
 
 <p align="center"><img src="docs/characters.png" alt="Pip, Peaky Blinders, Tanjiro Kamado and Harry Potter versions" width="640"></p>
 
-| Character | Outfit | Says hello with |
-|---|---|---|
-| Pip | The classic peach with a sprout | "Hi there!", "Psst… hi!" |
-| Peaky Blinders | Tweed flat cap with a razor blade in the peak, revolver | "Alright?", "Evening." |
-| Tanjiro Kamado | Flame scar on the forehead, black katana | "I'll do my best!" |
-| Harry Potter | Round glasses, lightning scar, wand | "Lumos! …oh, hi." |
-
-Outfits are drawn in code on top of Pip, so they squash, tilt, get thrown and go dizzy along with Pip. Held items move with Pip's hand: waving raises the sword or wand.
-
 ## Reminders
 
 Click the bell in the open notch, type a description, pick a time and press **Set**. You can also type the time in, like "tea in 5 min".
