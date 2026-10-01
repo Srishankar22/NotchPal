@@ -231,6 +231,7 @@ final class NotchController {
     /// and ⌘V is pressed for you, into the text field you were in: the notch never took focus.
     private func paste(_ item: ClipItem, plainOnly: Bool) {
         model.clipboard.write(item, plainOnly: plainOnly)
+        handBackKeyboard()   // ⌘V must land in your app, not the notch
         guard Settings.isOn(Settings.autoPaste) else {
             model.copiedHint()
             keepOpenUntil = Date().addingTimeInterval(2.4)
@@ -294,14 +295,19 @@ final class NotchController {
             panel.makeKey()
         } else {
             panel.allowsKey = false
-            // Hand the keyboard back to whatever app you were using.
-            if panel.isKeyWindow {
-                panel.orderOut(nil)
-                panel.orderFrontRegardless()
-            }
+            // The keyboard goes back to your app later (handBackKeyboard): doing it now means
+            // briefly hiding the window, which would cut off the notch's resize animation.
             // Give Pip's "Got it!" a moment on screen even if the mouse has left.
             if model.line != nil { keepOpenUntil = Date().addingTimeInterval(2.2) }
         }
+    }
+
+    /// After typing a reminder the notch still holds the keyboard. Give it back to the app you
+    /// were using: hiding and re-showing the window is what makes macOS do that.
+    private func handBackKeyboard() {
+        guard let panel, panel.isKeyWindow, !panel.allowsKey else { return }
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
     }
 
     private func scheduleClose() {
@@ -326,5 +332,11 @@ final class NotchController {
         watchTimer = nil
         panel?.ignoresMouseEvents = true
         model.close()
+        // Once the shrink animation has finished, so it isn't cut short.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, !self.model.isOpen else { return }
+            self.handBackKeyboard()
+        }
     }
 }

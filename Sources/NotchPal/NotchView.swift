@@ -39,6 +39,8 @@ struct NotchRootView: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: wings.left)
         .animation(.spring(response: 0.4, dampingFraction: 0.75), value: wings.right)
         .animation(.spring(response: 0.38, dampingFraction: 0.75), value: model.isExpanded)
+        // Any size change while open (e.g. reminder editor → Shelf) glides instead of jumping.
+        .animation(.spring(response: 0.38, dampingFraction: 0.8), value: model.currentOpenSize)
     }
 }
 
@@ -100,6 +102,8 @@ struct OpenContent: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.isEditing)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.isListing)
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: model.isExpanded)
+        .animation(.spring(response: 0.38, dampingFraction: 0.8), value: model.currentOpenSize)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: model.panel)
     }
 }
 

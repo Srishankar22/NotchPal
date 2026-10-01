@@ -24,13 +24,18 @@ struct PalSnapshot {
 final class PalModel: ObservableObject {
     /// Size of the notch when it's open: Pip on the left, the Shelf / Clipboard panel on the right.
     static let openSize = CGSize(width: 400, height: 150)
-    /// Bigger only while the Shelf / Clipboard panel or the reminder editor is showing.
+    /// Bigger only while the Shelf / Clipboard panel is showing.
     static let expandedSize = CGSize(width: 540, height: 200)
+    /// Just wide enough for Pip + the reminder editor or list, so they sit balanced.
+    static let reminderSize = CGSize(width: 410, height: 196)
 
     /// The panel (or reminder editor / list) is showing, so the notch is in its big layout.
     var isExpanded: Bool { panel != nil || isEditing || isListing }
 
-    var currentOpenSize: CGSize { isExpanded ? Self.expandedSize : Self.openSize }
+    var currentOpenSize: CGSize {
+        if isEditing || isListing { return Self.reminderSize }
+        return panel != nil ? Self.expandedSize : Self.openSize
+    }
 
     /// Size of the real notch (measured at launch). Set by NotchController.
     @Published var closedSize = CGSize(width: 190, height: 32)
