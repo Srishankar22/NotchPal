@@ -111,8 +111,6 @@ Nothing leaves your Mac: no network requests, no analytics, and copied text, fil
 
 For the full details (what's kept and where, passwords, permissions, memory use, and how to delete everything), see [Privacy and Memory](docs/PRIVACY.md).
 
-Want to know exactly what NotchPal keeps and how light it runs? Read [NotchPal: Privacy and Memory](https://claude.ai/artifact/MC5XgQ3icHcF7dVbNjZJr4).
-
 ## Reminders
 
 Click the 🔔 bell (right of the camera), type a description, pick a time and press **Set**. You can also type the time in, like "tea in 5 min".
