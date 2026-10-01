@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 enum Mood { case calm, hit, dizzy }
 
@@ -12,16 +13,24 @@ struct PalSnapshot {
     var hitStart: Date
     var dizzyStart: Date
     var upsetUntil: Date
+    var dancing: Bool
+    var danceStart: Date
+    var catchStart: Date
+    var shrugStart: Date
+    var nodStart: Date
 }
 
 @MainActor
 final class PalModel: ObservableObject {
-    /// Size of the notch when it's open.
-    static let openSize = CGSize(width: 360, height: 150)
-    /// Bigger while you're setting a reminder or looking through them.
-    static let editSize = CGSize(width: 410, height: 196)
+    /// Size of the notch when it's open: Pip on the left, the Shelf / Clipboard panel on the right.
+    static let openSize = CGSize(width: 400, height: 150)
+    /// Bigger only while the Shelf / Clipboard panel or the reminder editor is showing.
+    static let expandedSize = CGSize(width: 540, height: 200)
 
-    var currentOpenSize: CGSize { isEditing || isListing ? Self.editSize : Self.openSize }
+    /// The panel (or reminder editor / list) is showing, so the notch is in its big layout.
+    var isExpanded: Bool { panel != nil || isEditing || isListing }
+
+    var currentOpenSize: CGSize { isExpanded ? Self.expandedSize : Self.openSize }
 
     /// Size of the real notch (measured at launch). Set by NotchController.
     @Published var closedSize = CGSize(width: 190, height: 32)
@@ -67,13 +76,199 @@ final class PalModel: ObservableObject {
     var onEditingChanged: ((Bool) -> Void)?
     private var reminderTask: Task<Void, Never>?
 
-    /// What the bubble shows: Pip's current line, or the reminder that went off.
-    var bubbleText: String? { line ?? alert }
+    /// What the bubble shows: Pip's current line, the reminder that went off, or the song.
+    var bubbleText: String? { line ?? alert ?? musicLine }
 
     var snapshot: PalSnapshot {
         PalSnapshot(isOpen: isOpen, mouse: mouse, mood: mood,
                     openedAt: openedAt, waveStart: waveStart,
-                    hitStart: hitStart, dizzyStart: dizzyStart, upsetUntil: upsetUntil)
+                    hitStart: hitStart, dizzyStart: dizzyStart, upsetUntil: upsetUntil,
+                    dancing: isDancing, danceStart: danceStart,
+                    catchStart: catchStart, shrugStart: shrugStart, nodStart: nodStart)
+    }
+
+    // MARK: Shelf, clipboard, music
+
+    let shelf = ShelfStore()
+    let clipboard = ClipboardStore()
+    let nowPlaying = NowPlayingMonitor()
+
+    /// Which panel is showing. nil = the normal compact notch with just Pip.
+    /// Opened from the little icons beside the camera, or by dragging a file to the notch.
+    @Published var panel: PanelTab?
+
+    /// Click an icon: open that panel, or close it if it's already showing.
+    func togglePanel(_ tab: PanelTab) {
+        cancelEditing()
+        isListing = false
+        panel = panel == tab ? nil : tab
+    }
+    /// A file is being dragged near or over the notch: show the "Drop here" area.
+    @Published private(set) var dropTargeting = false
+    /// You're dragging an item out of the shelf: keep the notch open until it lands.
+    @Published var isDraggingOut = false
+
+    /// Music or video is playing (with a 2 s grace period on pause, so it doesn't flicker).
+    @Published private(set) var isDancing = false
+    @Published private(set) var danceStart = Date.distantPast
+    @Published private(set) var catchStart = Date.distantPast
+    @Published private(set) var shrugStart = Date.distantPast
+    @Published private(set) var nodStart = Date.distantPast
+    /// Briefly true after a copy (with "Pip nods each time you copy"), to show Pip beside the closed notch.
+    @Published private(set) var isNodding = false
+
+    /// Called when you click a clipboard item; the controller pastes it.
+    var onPaste: ((ClipItem, _ plainOnly: Bool) -> Void)?
+
+    private var bag: Set<AnyCancellable> = []
+    private var danceStopTask: Task<Void, Never>?
+    private var nodTask: Task<Void, Never>?
+    private var lastSettings: [String: Bool] = [:]
+
+    /// "♪ Title, Artist" while dancing, if song titles are on.
+    var musicLine: String? {
+        guard isDancing, Settings.isOn(Settings.showSongTitle), let t = nowPlaying.track else { return nil }
+        return "\u{266A} " + (t.artist.isEmpty ? t.title : "\(t.title), \(t.artist)")
+    }
+
+    /// Extra black on each side of the closed notch: Pip's head and music bars while music plays,
+    /// and the shelf count. The camera part always stays centered.
+    func closedWings(shelfCount: Int) -> (left: CGFloat, right: CGFloat) {
+        guard !isOpen else { return (0, 0) }
+        let peeking = isDancing || isNodding
+        let showCount = shelfCount > 0 && Settings.isOn(Settings.shelf) && Settings.isOn(Settings.shelfCount)
+        // Each includes 6 pt for the notch's curved top corner, which eats into the black area.
+        return (peeking ? 32 : 0, (isDancing ? 26 : 0) + (showCount ? 32 : 0))
+    }
+
+    /// Starts the clipboard watcher and music detection. Call once, after the callbacks are set.
+    func startExtras() {
+        AppFiles.lockDown()
+        clipboard.onCopy = { [weak self] in self?.copied() }
+        nowPlaying.$isPlaying.combineLatest(nowPlaying.$track)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.musicChanged() } }
+            .store(in: &bag)
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.settingsChanged() }
+            .store(in: &bag)
+        settingsChanged()
+    }
+
+    private func settingsChanged() {
+        let keys = [Settings.clipboard, Settings.dancing, Settings.rememberHistory, Settings.danceToVideos, Settings.shelf]
+        let now = Dictionary(uniqueKeysWithValues: keys.map { ($0, Settings.isOn($0)) })
+        guard now != lastSettings else { return }
+        let first = lastSettings.isEmpty
+        defer { lastSettings = now }
+
+        if first || now[Settings.clipboard] != lastSettings[Settings.clipboard] {
+            clipboard.setEnabled(now[Settings.clipboard] == true)
+        }
+        if first || now[Settings.dancing] != lastSettings[Settings.dancing] {
+            if now[Settings.dancing] == true { nowPlaying.start() } else { nowPlaying.stop() }
+        }
+        if now[Settings.rememberHistory] != lastSettings[Settings.rememberHistory] {
+            clipboard.save()   // writes or deletes the history file
+        }
+        // Make sure the open tab is one that's switched on.
+        if now[Settings.shelf] == false, panel == .shelf { panel = nil }
+        if now[Settings.clipboard] == false, panel == .clipboard { panel = nil }
+        musicChanged()
+    }
+
+    private func musicChanged() {
+        let allowed = Settings.isOn(Settings.dancing) && nowPlaying.isPlaying
+            && (nowPlaying.track?.isMusic == true || Settings.isOn(Settings.danceToVideos))
+        if allowed {
+            danceStopTask?.cancel()
+            danceStopTask = nil
+            if !isDancing {
+                isDancing = true
+                danceStart = Date()
+            }
+        } else if isDancing, danceStopTask == nil {
+            // Wait 2 s so a gap between songs doesn't stop the dance.
+            danceStopTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, let self else { return }
+                self.isDancing = false
+                self.danceStopTask = nil
+            }
+        }
+        objectWillChange.send()   // the song line may have changed
+    }
+
+    private func copied() {
+        guard Settings.isOn(Settings.nodOnCopy) else { return }
+        nodStart = Date()
+        guard !isOpen else { return }
+        isNodding = true
+        nodTask?.cancel()
+        nodTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            self?.isNodding = false
+        }
+    }
+
+    // MARK: Dropping files on the notch
+
+    func beginDropTargeting() {
+        dropTargeting = true
+        panel = Settings.isOn(Settings.shelf) ? .shelf : .clipboard
+        lineTask?.cancel()
+        line = nil
+        isListing = false
+        cancelEditing()
+    }
+
+    func endDropTargeting() {
+        dropTargeting = false
+    }
+
+    /// Files go on the shelf; text and links dragged in (e.g. from a browser) go to the clipboard history.
+    func received(files: [URL], texts: [String]) {
+        dropTargeting = false
+        if !files.isEmpty, Settings.isOn(Settings.shelf) {
+            let overflow = shelf.add(files)
+            panel = .shelf
+            catchStart = Date()
+            say(files.count == 1 ? "Got it!" : "Got all \(files.count)!", for: 1.6)
+            Sound.play("Pop")
+            if overflow > 0 {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .seconds(0.9))
+                    self?.shrugStart = Date()
+                    self?.say("No room! Oldest one's gone.", for: 2)
+                }
+            }
+        }
+        if !texts.isEmpty, Settings.isOn(Settings.clipboard) {
+            texts.forEach { clipboard.addDropped(text: $0) }
+            if files.isEmpty {
+                panel = .clipboard
+                catchStart = Date()
+                say("Saved to clipboard!", for: 1.6)
+            }
+        }
+    }
+
+    // MARK: Clipboard
+
+    func paste(_ item: ClipItem, plainOnly: Bool) {
+        onPaste?(item, plainOnly)
+    }
+
+    /// Without auto-paste: the item is on the clipboard, you press ⌘V.
+    func copiedHint() {
+        say("Copied! Press \u{2318}V", for: 2.4)
+        waveStart = Date()
+    }
+
+    func cannotPin(_ why: String) {
+        shrugStart = Date()
+        say(why, for: 1.8)
     }
 
     // MARK: - Open / close
@@ -100,6 +295,8 @@ final class PalModel: ObservableObject {
         recentHits.removeAll()
         isHeld = false
         isListing = false
+        dropTargeting = false
+        panel = nil
         cancelEditing()
     }
 
@@ -112,6 +309,7 @@ final class PalModel: ObservableObject {
         alert = nil
         editHint = nil
         isListing = false
+        panel = nil
         isEditing = true
         onEditingChanged?(true)
     }
@@ -153,6 +351,7 @@ final class PalModel: ObservableObject {
         line = nil
         alert = nil
         cancelEditing()
+        panel = nil
         isListing = true
     }
 

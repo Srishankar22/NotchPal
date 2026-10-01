@@ -1,63 +1,105 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Root
 
 struct NotchRootView: View {
     @ObservedObject var model: PalModel
+    @ObservedObject var shelf: ShelfStore
 
     var body: some View {
-        let size = model.isOpen ? model.currentOpenSize : model.closedSize
+        let wings = model.closedWings(shelfCount: shelf.items.count)
+        let closed = CGSize(width: model.closedSize.width + wings.left + wings.right, height: model.closedSize.height)
+        let size = model.isOpen ? model.currentOpenSize : closed
         let shape = NotchShape(topRadius: model.isOpen ? 14 : 6,
                                bottomRadius: model.isOpen ? 30 : 9)
 
         ZStack(alignment: .top) {
             if model.isOpen {
-                OpenContent(model: model)
+                OpenContent(model: model, shelf: shelf)
                     .transition(.asymmetric(
                         insertion: .opacity.animation(.easeOut(duration: 0.25).delay(0.08)),
                         removal: .opacity.animation(.easeIn(duration: 0.1))))
+            } else if wings.left + wings.right > 0 {
+                ClosedWings(model: model, shelf: shelf, left: wings.left, right: wings.right)
+                    .transition(.opacity)
             }
         }
         .frame(width: size.width, height: size.height)
         .background(shape.fill(Color.black))
         .clipShape(shape)
-        .shadow(color: Color.black.opacity(model.isOpen ? 0.4 : 0), radius: 14, y: 6)
+        // No shadow while closed: it's invisible there, and re-blurring it every frame of the
+        // music peek costs real CPU.
+        .shadow(color: Color.black.opacity(model.isOpen ? 0.4 : 0), radius: model.isOpen ? 14 : 0, y: model.isOpen ? 6 : 0)
+        // Uneven wings: shift so the camera part stays centered.
+        .offset(x: model.isOpen ? 0 : (wings.right - wings.left) / 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .coordinateSpace(.named("root"))
         .animation(.spring(response: 0.42, dampingFraction: 0.7), value: model.isOpen)
-        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: model.isEditing)
-        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: model.isListing)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: wings.left)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: wings.right)
+        .animation(.spring(response: 0.38, dampingFraction: 0.75), value: model.isExpanded)
     }
 }
 
 // MARK: - What's inside the open notch
+// Pip on the left; on the right Pip's line plus the Shelf / Clipboard tabs
+// (or the reminder editor / list while those are open).
 
 struct OpenContent: View {
     @ObservedObject var model: PalModel
+    @ObservedObject var shelf: ShelfStore
+
+    static let side: CGFloat = 26      // 14 for the flared top corners + breathing room
+    static let bottom: CGFloat = 16
 
     var body: some View {
-        // Pip + bubble are centered as one group: equal space left and right.
-        // With no bubble Pip sits in the middle; when one appears Pip slides left.
-        HStack(spacing: 10) {
-            PipView(model: model)
-                .zIndex(1)   // fly over the bubble when thrown
-            if model.isEditing {
-                ReminderEditor(model: model)
-                    .transition(.scale(scale: 0.7, anchor: .leading).combined(with: .opacity))
-            } else if model.isListing {
-                ReminderList(model: model)
-                    .transition(.scale(scale: 0.7, anchor: .leading).combined(with: .opacity))
-            } else if let text = model.bubbleText {
-                SpeechBubble(text: text)
+        let size = model.currentOpenSize
+        let top = model.closedSize.height + 4
+        let pipWidth: CGFloat = 62 * 1.7
+        Group {
+            if model.isExpanded {
+                // Big layout: Pip on the left, the panel on the right.
+                HStack(alignment: .center, spacing: 10) {
+                    PipView(model: model)
+                        .zIndex(1)   // fly over the panel when thrown
+                    Group {
+                        if model.isEditing {
+                            ReminderEditor(model: model)
+                        } else if model.isListing {
+                            ReminderList(model: model)
+                        } else {
+                            TabbedPanel(model: model, shelf: shelf)
+                        }
+                    }
+                    .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                    .frame(width: size.width - 2 * Self.side - pipWidth - 10,
+                           height: size.height - top - Self.bottom, alignment: .topLeading)
+                }
+                .padding(.horizontal, Self.side)
+            } else {
+                // Normal: just Pip, centered, with the speech bubble beside them.
+                HStack(spacing: 10) {
+                    PipView(model: model)
+                        .zIndex(1)
+                    if let text = model.bubbleText {
+                        SpeechBubble(text: text)
+                    }
+                }
             }
         }
-        .padding(.top, model.closedSize.height + 2)   // stay below the camera
-        .frame(width: model.currentOpenSize.width, height: model.currentOpenSize.height, alignment: .top)
+        .padding(.top, top)
+        .frame(width: size.width, height: size.height, alignment: .top)
         .coordinateSpace(.named("notch"))
         .overlay(alignment: .top) { NotchEars(model: model) }
+        .onDrop(of: [.fileURL, .url, .plainText], isTargeted: nil) { providers in
+            DropLoader.load(providers) { files, texts in model.received(files: files, texts: texts) }
+            return true
+        }
         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: model.bubbleText)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.isEditing)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: model.isListing)
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: model.isExpanded)
     }
 }
 
@@ -77,6 +119,45 @@ struct SpeechBubble: View {
             .fixedSize()
             .id(text)
             .transition(.scale(scale: 0.7, anchor: .leading).combined(with: .opacity))
+    }
+}
+
+/// Reads what was dropped: file URLs, and text / web links (from a browser).
+enum DropLoader {
+    static func load(_ providers: [NSItemProvider], done: @escaping @MainActor ([URL], [String]) -> Void) {
+        var files: [URL] = []
+        var texts: [String] = []
+        let group = DispatchGroup()
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                group.enter()
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url, url.isFileURL { files.append(url) }
+                        group.leave()
+                    }
+                }
+            } else if p.canLoadObject(ofClass: URL.self) {
+                group.enter()
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    DispatchQueue.main.async {
+                        if let url { texts.append(url.absoluteString) }
+                        group.leave()
+                    }
+                }
+            } else if p.canLoadObject(ofClass: String.self) {
+                group.enter()
+                _ = p.loadObject(ofClass: String.self) { text, _ in
+                    DispatchQueue.main.async {
+                        if let text { texts.append(text) }
+                        group.leave()
+                    }
+                }
+            }
+        }
+        group.notify(queue: .main) {
+            MainActor.assumeIsolated { done(files, texts) }
+        }
     }
 }
 
@@ -389,6 +470,14 @@ private struct ReminderRow: View {
 
 struct NotchEars: View {
     @ObservedObject var model: PalModel
+    @ObservedObject var shelf: ShelfStore
+    @AppStorage(Settings.shelf) private var shelfOn = true
+    @AppStorage(Settings.clipboard) private var clipboardOn = true
+
+    init(model: PalModel) {
+        self.model = model
+        self.shelf = model.shelf
+    }
 
     var body: some View {
         let width = model.currentOpenSize.width
@@ -410,41 +499,83 @@ struct NotchEars: View {
 
             Spacer(minLength: 0)
 
-            // Right: add a reminder, or see (and delete) the ones you have.
-            Button {
-                if model.isEditing || model.isListing {
-                    model.cancelEditing()
-                    model.hideList()
-                } else if model.reminders.isEmpty {
-                    model.startEditing()
-                } else {
-                    model.showList()
+            // Right: Shelf and Clipboard (click to open that panel, again to hide it), then the bell.
+            HStack(spacing: 1) {
+                if shelfOn {
+                    EarButton(symbol: model.panel == .shelf ? "tray.full.fill" : "tray.full",
+                              count: shelf.items.count, active: model.panel == .shelf, help: "Shelf") {
+                        model.togglePanel(.shelf)
+                    }
                 }
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: model.reminders.isEmpty ? "bell" : "bell.fill")
-                    if !model.reminders.isEmpty { Text("\(model.reminders.count)") }
+                if clipboardOn {
+                    EarButton(symbol: model.panel == .clipboard ? "doc.on.clipboard.fill" : "doc.on.clipboard",
+                              count: nil, active: model.panel == .clipboard, help: "Clipboard") {
+                        model.togglePanel(.clipboard)
+                    }
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
+                Button {
+                    if model.isEditing || model.isListing {
+                        model.cancelEditing()
+                        model.hideList()
+                    } else if model.reminders.isEmpty {
+                        model.startEditing()
+                    } else {
+                        model.showList()
+                    }
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: model.reminders.isEmpty ? "bell" : "bell.fill")
+                        if !model.reminders.isEmpty { Text("\(model.reminders.count)") }
+                    }
+                    .foregroundStyle(model.isEditing || model.isListing ? Color.white : Color.white.opacity(0.6))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.white.opacity(model.isEditing || model.isListing ? 0.16 : 0)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(model.reminders.isEmpty ? "Add a reminder" : "Your reminders")
+                .contextMenu {
+                    ForEach(model.reminders) { r in
+                        Button("Remove \u{201C}\(r.text)\u{201D} \u{00B7} \(ReminderParser.dayAndTime(r.due))") { model.remove(r.id) }
+                    }
+                    if !model.reminders.isEmpty {
+                        Divider()
+                        Button("Clear All Reminders") { model.removeAllReminders() }
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .help(model.reminders.isEmpty ? "Add a reminder" : "Your reminders")
-            .contextMenu {
-                ForEach(model.reminders) { r in
-                    Button("Remove \u{201C}\(r.text)\u{201D} \u{00B7} \(ReminderParser.dayAndTime(r.due))") { model.remove(r.id) }
-                }
-                if !model.reminders.isEmpty {
-                    Divider()
-                    Button("Clear All Reminders") { model.removeAllReminders() }
-                }
-            }
-            .frame(width: earWidth)
+            // Keep clear of the notch's curved top corner on the outside edge.
+            .frame(width: max(0, earWidth - 14))
+            .padding(.trailing, 14)
         }
         .font(.system(size: 11, weight: .semibold, design: .rounded))
         .foregroundStyle(Color.white.opacity(0.6))
         .frame(width: width, height: model.closedSize.height)
+    }
+}
+
+private struct EarButton: View {
+    let symbol: String
+    let count: Int?
+    let active: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 2) {
+                Image(systemName: symbol)
+                if let count, count > 0 { Text("\(count)") }
+            }
+            .foregroundStyle(active ? Color.white : Color.white.opacity(0.6))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.white.opacity(active ? 0.16 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 

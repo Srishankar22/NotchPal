@@ -50,7 +50,7 @@ struct NotchGeometry {
 final class NotchController {
     /// The window is a little bigger than the open notch so the springy
     /// overshoot and the shadow never get cut off.
-    private static let windowSize = CGSize(width: 440, height: 230)
+    private static let windowSize = CGSize(width: 620, height: 270)
 
     let model = PalModel()
     private var panel: NotchPanel?
@@ -63,6 +63,13 @@ final class NotchController {
     private var waitingForHover = false
     /// Stay open (even with the mouse away) until this time, e.g. so "Got it!" can be read.
     private var keepOpenUntil = Date.distantPast
+    /// A file (or text) is being dragged somewhere on screen, toward the notch maybe.
+    private var fileDragActive = false
+    private var dragCountAtMouseDown = NSPasteboard(name: .drag).changeCount
+    private var askedForAccessibility: Bool {
+        get { UserDefaults.standard.bool(forKey: "askedAccessibility") }
+        set { UserDefaults.standard.set(newValue, forKey: "askedAccessibility") }
+    }
 
     func start() {
         let panel = NotchPanel(contentRect: NSRect(origin: .zero, size: Self.windowSize),
@@ -78,7 +85,7 @@ final class NotchController {
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
 
-        let host = FirstClickHostingView(rootView: NotchRootView(model: model))
+        let host = FirstClickHostingView(rootView: NotchRootView(model: model, shelf: model.shelf))
         host.sizingOptions = []
         panel.contentView = host
         self.panel = panel
@@ -89,7 +96,9 @@ final class NotchController {
 
         model.onAttention = { [weak self] in self?.openForReminder() }
         model.onEditingChanged = { [weak self] editing in self?.editingChanged(editing) }
+        model.onPaste = { [weak self] item, plain in self?.paste(item, plainOnly: plain) }
         model.startReminders()
+        model.startExtras()
 
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -112,6 +121,14 @@ final class NotchController {
                        display: true)
     }
 
+    /// The closed notch as drawn right now, including any wings beside it (screen coordinates).
+    private var closedRect: CGRect {
+        let wings = model.closedWings(shelfCount: model.shelf.items.count)
+        let size = model.closedSize
+        return CGRect(x: screenFrame.midX - size.width / 2 - wings.left, y: screenFrame.maxY - size.height,
+                      width: size.width + wings.left + wings.right, height: size.height)
+    }
+
     /// A rect of the given size hugging the top-center of the screen (screen coordinates).
     private func topRect(_ size: CGSize) -> CGRect {
         CGRect(x: screenFrame.midX - size.width / 2, y: screenFrame.maxY - size.height,
@@ -123,8 +140,19 @@ final class NotchController {
     private func installMonitors() {
         // Watching mouse movement doesn't need any special permission.
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
-            MainActor.assumeIsolated { self?.mouseMoved() }
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            let dragging = event.type == .leftMouseDragged
+            MainActor.assumeIsolated {
+                if dragging { self?.draggedElsewhere() }
+                self?.mouseMoved()
+            }
+        }) { monitors.append(m) }
+        // Start / end of a drag in another app (Finder, a browser…).
+        if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp], handler: { [weak self] event in
+            let down = event.type == .leftMouseDown
+            MainActor.assumeIsolated {
+                if down { self?.dragCountAtMouseDown = NSPasteboard(name: .drag).changeCount } else { self?.endFileDrag() }
+            }
         }) { monitors.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
             MainActor.assumeIsolated { self?.mouseMoved() }
@@ -144,8 +172,9 @@ final class NotchController {
 
         if model.isOpen {
             model.mouse = local
-            // Holding Pip: keep the notch open and keep getting the mouse, wherever it goes.
-            if model.isHeld {
+            // Holding Pip, dragging a shelf item out, or a file on its way in: keep the notch open
+            // and keep getting the mouse, wherever it goes.
+            if model.isHeld || model.isDraggingOut || fileDragActive {
                 panel.ignoresMouseEvents = false
                 cancelClose()
                 return
@@ -161,11 +190,78 @@ final class NotchController {
             }
         } else {
             panel.ignoresMouseEvents = true
-            if topRect(model.closedSize).insetBy(dx: -10, dy: -4).contains(p) {
+            if closedRect.insetBy(dx: -10, dy: -4).contains(p) {
                 model.mouse = local
                 open()
             }
         }
+    }
+
+    // MARK: Files dragged toward the notch
+
+    /// Another app is dragging something. If it's a file (or text) and it comes within ~40 pt,
+    /// open on the Shelf with a "Drop here" area, no hover needed.
+    private func draggedElsewhere() {
+        guard !model.isDraggingOut,
+              Settings.isOn(Settings.shelf) || Settings.isOn(Settings.clipboard) else { return }
+        if !fileDragActive {
+            let pb = NSPasteboard(name: .drag)
+            guard pb.changeCount != dragCountAtMouseDown,
+                  let types = pb.types,
+                  types.contains(.fileURL) || types.contains(.URL) || types.contains(.string) else { return }
+            fileDragActive = true
+        }
+        let p = NSEvent.mouseLocation
+        let target = model.isOpen ? topRect(model.currentOpenSize) : closedRect
+        guard target.insetBy(dx: -40, dy: -40).contains(p) else { return }
+        if !model.isOpen { open(greet: false) }
+        if !model.dropTargeting { model.beginDropTargeting() }
+        panel?.ignoresMouseEvents = false
+    }
+
+    private func endFileDrag() {
+        guard fileDragActive else { return }
+        fileDragActive = false
+        model.endDropTargeting()
+    }
+
+    // MARK: Pasting a clipboard item
+
+    /// Puts the item on the clipboard. With auto-paste (and Accessibility allowed) the notch closes
+    /// and ⌘V is pressed for you, into the text field you were in: the notch never took focus.
+    private func paste(_ item: ClipItem, plainOnly: Bool) {
+        model.clipboard.write(item, plainOnly: plainOnly)
+        guard Settings.isOn(Settings.autoPaste) else {
+            model.copiedHint()
+            keepOpenUntil = Date().addingTimeInterval(2.4)
+            return
+        }
+        if AXIsProcessTrusted() {
+            close()
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(120))
+                Self.pressCommandV()
+            }
+        } else {
+            if !askedForAccessibility {
+                askedForAccessibility = true
+                let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+                _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+            }
+            model.copiedHint()
+            keepOpenUntil = Date().addingTimeInterval(2.4)
+        }
+    }
+
+    private static func pressCommandV() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let v: CGKeyCode = 9   // "V"
+        let down = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: v, keyDown: false)
+        down?.flags = .maskCommand
+        up?.flags = .maskCommand
+        down?.post(tap: .cgAnnotatedSessionEventTap)
+        up?.post(tap: .cgAnnotatedSessionEventTap)
     }
 
     // MARK: Open / close
@@ -177,7 +273,11 @@ final class NotchController {
         // Backup check in case a mouse event gets missed (e.g. switching Spaces).
         watchTimer?.invalidate()
         watchTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.mouseMoved() }
+            MainActor.assumeIsolated {
+                // Backup for a missed mouse-up at the end of a drag.
+                if self?.fileDragActive == true, NSEvent.pressedMouseButtons & 1 == 0 { self?.endFileDrag() }
+                self?.mouseMoved()
+            }
         }
     }
 

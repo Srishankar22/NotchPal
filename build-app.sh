@@ -23,7 +23,8 @@ if [ ! -f "$WORK/AppIcon.icns" ] || [ scripts/make-icon.swift -nt "$WORK/AppIcon
     swiftc -O -parse-as-library -o "$WORK/make-icon" \
         scripts/make-icon.swift \
         Sources/NotchPal/PipView.swift Sources/NotchPal/PipMotion.swift Sources/NotchPal/PipSkins.swift \
-        Sources/NotchPal/PalModel.swift Sources/NotchPal/Reminders.swift
+        Sources/NotchPal/PalModel.swift Sources/NotchPal/Reminders.swift Sources/NotchPal/Settings.swift \
+        Sources/NotchPal/Shelf.swift Sources/NotchPal/Clipboard.swift Sources/NotchPal/NowPlaying.swift
     "$WORK/make-icon" "$WORK/icon-1024.png"
 
     ICONSET="$WORK/AppIcon.iconset"
@@ -36,11 +37,23 @@ if [ ! -f "$WORK/AppIcon.icns" ] || [ scripts/make-icon.swift -nt "$WORK/AppIcon
     iconutil -c icns "$ICONSET" -o "$WORK/AppIcon.icns"
 fi
 
+echo "→ Building the music helper (mediaremote-adapter)…"
+ADAPTER_BIN="$WORK/MediaRemoteAdapter.framework/MediaRemoteAdapter"
+if [ ! -e "$ADAPTER_BIN" ] || [ -n "$(find Vendor/mediaremote-adapter scripts/build-mediaremote-adapter.sh -newer "$ADAPTER_BIN" -type f | head -1)" ]; then
+    scripts/build-mediaremote-adapter.sh "$WORK"
+fi
+
 echo "→ Assembling ${APP}…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$WORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+
+# Dancing Pip: the adapter's Perl script and helper framework (BSD 3-Clause, license included).
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$WORK/MediaRemoteAdapter.framework" "$APP/Contents/Frameworks/"
+cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$APP/Contents/Resources/"
+cp Vendor/mediaremote-adapter/LICENSE "$APP/Contents/Resources/mediaremote-adapter-LICENSE.txt"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

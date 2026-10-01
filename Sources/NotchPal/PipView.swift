@@ -33,6 +33,7 @@ struct PipView: View {
                     PipDrawing(pose: pose, size: size, skin: skin)
                         .offset(motion.offset)
                     hearts(at: date)
+                    if snap.dancing && snap.mood != .dizzy { notes(at: date) }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
                 let _ = send(events)
@@ -86,6 +87,24 @@ struct PipView: View {
         }
     }
 
+    /// Music notes drifting up while Pip dances. Worked out from the clock, so no state to keep.
+    private func notes(at date: Date) -> some View {
+        let t = date.timeIntervalSinceReferenceDate
+        let period = 0.7
+        let newest = (t / period).rounded(.down)
+        return ForEach(0..<3, id: \.self) { i in
+            let k = newest - Double(i)
+            let age = t - k * period
+            let seed = abs(sin(k * 12.9898) * 43758.5453).truncatingRemainder(dividingBy: 1)
+            Image(systemName: seed > 0.5 ? "music.note" : "music.quarternote.3")
+                .font(.system(size: 10 + seed * 4, weight: .bold))
+                .foregroundStyle(Color.white.opacity(0.85))
+                .offset(x: CGFloat(seed - 0.5) * 56 + CGFloat(sin(age * 4)) * 4,
+                        y: -size * 0.55 - CGFloat(age) * 22)
+                .opacity(max(0, 1 - age / 2.1))
+        }
+    }
+
     private func hearts(at date: Date) -> some View {
         ForEach(motion.hearts) { h in
             let age = date.timeIntervalSince(h.born)
@@ -119,6 +138,7 @@ struct Pose {
     var spin: Double = 0
     var starsPhase: Double? = nil
     var flatMouth = false                 // unimpressed "—"
+    var mouthOpen = false                 // "o", catching something
 }
 
 /// A spring that starts at 1 and wobbles back to 0.
@@ -168,6 +188,78 @@ extension Pose {
             p.rightArm = .degrees(-25 + (raised + 25) * env)
             p.tilt = .degrees(sin(sinceWave * 6.5) * 4 * env)
             p.eyeStyle = .happy
+        }
+
+        // Dancing: a steady ~110 BPM groove. The move changes every 8 seconds.
+        if snap.dancing && snap.mood != .dizzy {
+            let s = date.timeIntervalSince(snap.danceStart)
+            let env = CGFloat(min(max(s, 0) / 0.5, 1))
+            let beat = s * Double.pi * 110 / 60          // |sin(beat)| peaks once per beat
+            let bounce = CGFloat(abs(sin(beat)))
+            let sway = CGFloat(sin(beat))
+            switch Int(max(s, 0) / 8) % 3 {
+            case 0: // head bob
+                p.bodyOffset.height -= bounce * 6 * env
+                p.squashY *= 1 + 0.05 * bounce * env
+                p.squashX *= 1 - 0.04 * bounce * env
+                p.leftArm = .degrees(25 + 35 * Double(bounce * env))
+                p.rightArm = .degrees(-25 - 35 * Double(bounce * env))
+            case 1: // side step
+                p.bodyOffset.width += sway * 7 * env
+                p.bodyOffset.height -= bounce * 3 * env
+                p.tilt = .degrees(p.tilt.degrees + Double(sway * 7 * env))
+                p.leftArm = .degrees(25 + 50 * Double(max(0, sway) * env))
+                p.rightArm = .degrees(-25 + 50 * Double(min(0, sway) * env))
+            default: // wiggle, arms up
+                let w = CGFloat(sin(beat * 2))
+                p.tilt = .degrees(p.tilt.degrees + Double(w * 9 * env))
+                p.squashX *= 1 + 0.04 * CGFloat(sin(beat * 4)) * env
+                p.leftArm = .degrees(25 + (125 + Double(w) * 20) * Double(env))
+                p.rightArm = .degrees(-25 - (125 + Double(w) * 20) * Double(env))
+            }
+            p.sprout = .degrees(sin(beat * 2) * 22)
+            p.eyeStyle = .happy
+            p.cheekGlow = 0.6
+        }
+
+        // Caught a dropped file: arms up, mouth open, then a little gulp
+        let sinceCatch = date.timeIntervalSince(snap.catchStart)
+        if sinceCatch >= 0 && sinceCatch < 1.1 {
+            let up = min(sinceCatch / 0.15, 1) * min((1.1 - sinceCatch) / 0.25, 1)
+            p.leftArm = .degrees(25 + 135 * up)
+            p.rightArm = .degrees(-25 - 135 * up)
+            if sinceCatch < 0.5 {
+                p.mouthOpen = true
+                p.eyeScale = 1.2
+                p.eyeStyle = .normal
+            } else if sinceCatch < 0.8 {
+                let g = CGFloat(sin((sinceCatch - 0.5) / 0.3 * Double.pi))   // gulp
+                p.squashY *= 1 - 0.12 * g
+                p.squashX *= 1 + 0.1 * g
+                p.eyeStyle = .happy
+            } else {
+                p.eyeStyle = .happy
+            }
+        }
+
+        // Shrug ("no room!")
+        let sinceShrug = date.timeIntervalSince(snap.shrugStart)
+        if sinceShrug >= 0 && sinceShrug < 1.3 {
+            let env = min(sinceShrug / 0.2, 1) * min((1.3 - sinceShrug) / 0.3, 1)
+            p.leftArm = .degrees(25 + 70 * env)
+            p.rightArm = .degrees(-25 - 70 * env)
+            p.bodyOffset.height -= CGFloat(env) * 2
+            p.tilt = .degrees(p.tilt.degrees + sin(sinceShrug * 5) * 3 * env)
+            p.flatMouth = true
+            p.eyeStyle = .normal
+        }
+
+        // Nod (each copy, if turned on)
+        let sinceNod = date.timeIntervalSince(snap.nodStart)
+        if sinceNod >= 0 && sinceNod < 1.0 {
+            let n = CGFloat(abs(sin(sinceNod * Double.pi * 2)))
+            p.bodyOffset.height += n * 3
+            p.squashY *= 1 - 0.06 * n
         }
 
         // Got hit: squash & stretch, shake, arms fly out, squint
@@ -345,6 +437,9 @@ struct PipDrawing: View {
         if pose.flatMouth {
             Capsule().fill(ink)
                 .frame(width: size * 0.13, height: size * 0.035)
+        } else if pose.mouthOpen {
+            Ellipse().fill(ink)
+                .frame(width: size * 0.12, height: size * 0.13)
         } else {
             expressionMouth
         }
