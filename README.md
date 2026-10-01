@@ -109,6 +109,8 @@ The menu also has **Pause Clipboard for 1 Hour**, **Clear Shelf**, **Clear Clipb
 
 Nothing leaves your Mac: no network requests, no analytics, and copied text, file names and song titles are never written to a log. Saved shelf and clipboard files live in `~/Library/Application Support/NotchPal`, readable only by you.
 
+For the full details (what's kept and where, passwords, permissions, memory use, and how to delete everything), see [Privacy and Memory](docs/PRIVACY.md).
+
 Want to know exactly what NotchPal keeps and how light it runs? Read [NotchPal: Privacy and Memory](https://claude.ai/artifact/MC5XgQ3icHcF7dVbNjZJr4).
 
 ## Reminders
@@ -193,7 +195,7 @@ Or open `Package.swift` in Xcode and press ⌘R. This runs a bare program rather
 
 | What | File |
 |---|---|
-| Open notch size (small, and big with a panel) | `openSize` / `expandedSize` in `PalModel.swift` |
+| Open notch size (small, with a panel, with a reminder) | `openSize` / `expandedSize` / `reminderSize` in `PalModel.swift` |
 | Icons beside the camera (countdown, Shelf, Clipboard, bell) | `NotchEars` in `NotchView.swift` |
 | How much the closed notch widens for the music peek and shelf count | `closedWings` in `PalModel.swift` |
 | Shelf and Clipboard tabs, closed-notch peek | `PanelViews.swift` |
